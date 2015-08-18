@@ -1,0 +1,173 @@
+package me.planetguy.tct.recipe;
+
+import com.google.common.collect.ImmutableList;
+
+import cpw.mods.fml.client.FMLClientHandler;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
+import me.planetguy.tct.ConfigHandler;
+import me.planetguy.tct.Ref;
+import me.planetguy.tct.inventory.gui.GuiTCT;
+import net.minecraft.client.Minecraft;
+import net.minecraft.entity.player.InventoryPlayer;
+import net.minecraft.inventory.IInventory;
+
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+@SideOnly(Side.CLIENT)
+public enum RecipeChecker {
+	INSTANCE;
+
+	private Minecraft mc = FMLClientHandler.instance().getClient();
+
+	public volatile boolean requested = false;
+	private volatile boolean displayed = true;
+	private volatile boolean suspended = false;
+	public volatile boolean done = false;
+
+	public volatile List<WrappedRecipe> recipes = ImmutableList.of();
+
+	private Thread worker = null;
+
+	@SubscribeEvent
+	public void tickEnd(TickEvent.ClientTickEvent event) {
+		if (event.phase == TickEvent.Phase.END && mc.theWorld != null) {
+			if (worker == null || !worker.isAlive()) {
+				worker = new Thread(new CraftabilityChecker(), Ref.MOD_ID + "-" + CraftabilityChecker.class.getSimpleName());
+				worker.setDaemon(true);
+				worker.start();
+				Ref.LOGGER.info("Worker thread spawned.");
+			}
+			if (!displayed && !requested && done) {
+				if (mc.currentScreen instanceof GuiTCT) {
+					GuiTCT gec = (GuiTCT) mc.currentScreen;
+					gec.refreshCraftingOutput();
+					displayed = true;
+				}
+			}
+		}
+	}
+	
+	public boolean isRequested() {
+		return requested;
+	}
+
+	public void setRequested(boolean requested) {
+		this.requested = requested;
+	}
+
+	//Timeout code for craftability check - mostly for debugging purposes
+	
+	static final ExecutorService timekeeperThread=Executors.newFixedThreadPool(1);
+	
+	static Runnable timekeeperTask() {
+		return new Runnable(){
+			public void run() {
+				try {
+					Thread.sleep(500L);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+				while(!RecipeHelper.state.isEmpty()) {
+					if(!RecipeHelper.state.isEmpty()){
+						Ref.LOGGER.info("Long operation in recipe chain "+RecipeHelper.state);
+					}
+					try {
+						Thread.sleep(500L);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+				}
+			}
+		};
+	}
+	
+	private class CraftabilityChecker implements Runnable {
+
+		@Override
+		public void run() {
+			while (true) {
+				if (requested) {
+					requested = false;
+					displayed = false;
+					suspended = false;
+					done = false;
+
+					setCraftableRecipes();
+				}
+			}
+		}
+		
+		private void setCraftableRecipes() {
+			timekeeperThread.submit(timekeeperTask());
+			InventoryPlayer inventory = mc.thePlayer.inventory;
+			recipes = getCraftableRecipes(inventory, ConfigHandler.MAX_RECURSION, ConfigHandler.MAX_TIME, RecipeManager.getAllRecipes());
+			done = !suspended;
+		}
+
+		private List<WrappedRecipe> getCraftableRecipes(IInventory inventory, int maxRecursion, long maxTime, List<WrappedRecipe> recipesToCheck) {
+			long startTime = System.currentTimeMillis();
+
+			List<WrappedRecipe> craftable = new LinkedList<WrappedRecipe>();
+			List<WrappedRecipe> tmpAll = new LinkedList<WrappedRecipe>(recipesToCheck);
+
+			// TODO: timeout
+			// TODO: on gui when you press shift calc all the base ingredients from the inventory you need for all crafting
+			// steps not just the last recipe (also color overlay the slots you take from)
+
+			for (WrappedRecipe wr : tmpAll) {
+				if (requested) {
+					suspended = true;
+					return ImmutableList.of();
+				}
+				if (RecipeHelper.canCraft(wr, inventory)) {
+					craftable.add(wr);
+				}
+			}
+			tmpAll.removeAll(craftable);
+
+			if (!craftable.isEmpty()) {
+				for (int recursion = 0; recursion < maxRecursion; recursion++) {
+					if (requested) {
+						suspended = true;
+						return ImmutableList.of();
+					}
+					if (tmpAll.isEmpty()) {
+						break;
+					}
+
+					List<WrappedRecipe> tmpCraftable = new LinkedList<WrappedRecipe>(craftable);
+					for (WrappedRecipe wr : tmpAll) {
+						if (requested) {
+							suspended = true;
+							return ImmutableList.of();
+						}
+						if (RecipeHelper.canCraft(wr, inventory, tmpCraftable, maxRecursion)) {
+							craftable.add(wr);
+						}
+					}
+					tmpAll.removeAll(craftable);
+
+					if (tmpCraftable.size() == craftable.size()) {
+						break;
+					}
+				}
+			}
+
+			if (requested) {
+				suspended = true;
+				return ImmutableList.of();
+			}
+
+			Collections.sort(craftable, WrappedRecipe.Sorter.INSTANCE);
+			Ref.LOGGER.info(String.format("%d/%d craftable | %.4f seconds", craftable.size(), recipesToCheck.size(), (System.currentTimeMillis() - startTime) / 1000.0D));
+			return craftable;
+		}
+	}
+}

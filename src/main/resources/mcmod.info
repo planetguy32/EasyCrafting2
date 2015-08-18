@@ -1,0 +1,16 @@
+[{
+    "modid": "TurboCraftingTable",
+    "name": "Turbo Crafting Table",
+    "description": "Crafting Table II-like GUI for vanilla crafting tables",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "https://github.com/planetguy32/TurboCraftingTable",
+    "updateUrl": "",
+    "authorList": [ "Lepko", "planetguy" ],
+    "credits": "Ported to vanilla table by planetguy. Code derived from EasyCrafting by Lepko, with changes from makotech222. Idea based on mods by ljdp and Zeldo.",
+    "parent": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+}]
+

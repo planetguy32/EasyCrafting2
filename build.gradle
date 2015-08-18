@@ -1,0 +1,68 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven {
+            name = "forge"
+            url = "http://files.minecraftforge.net/maven"
+        }
+        maven {
+            name = "sonatype"
+            url = "https://oss.sonatype.org/content/repositories/snapshots/"
+        }
+    }
+    dependencies {
+        classpath "net.minecraftforge.gradle:ForgeGradle:1.2-SNAPSHOT"
+    }
+}
+
+apply plugin: "curseforge"
+apply plugin: "forge"
+
+version          = "1.0"
+group            = "me.planetguy.tct"
+archivesBaseName = "TurboCraftingTable"
+
+minecraft {
+    version = "1.7.10-10.13.4.1448-1.7.10"
+        replace '${version}', project.version
+}
+
+dependencies {
+    //compile "com.mod-buildcraft:buildcraft:6.0.8:dev"  // adds buildcraft to the dev env
+}
+
+processResources {
+    // this will ensure that this task is redone when the versions change.
+    inputs.property "version",   project.version
+    inputs.property "mcversion", project.minecraft.version
+
+    // expand variables
+    from(sourceSets.main.resources.srcDirs) {
+        include "**/*.properties"
+        include "**/*.info"
+
+        expand "version": project.version, "mcversion": project.minecraft.version
+    }
+
+    // copy everything else
+    from(sourceSets.main.resources.srcDirs) {
+		exclude "**/*.properties"
+        exclude "**/*.info"
+    }
+}
+
+// *** Additional Jars
+task sourceJar(type: Jar) {
+    from sourceSets.main.allSource
+    classifier = "src"
+}
+
+task devJar(type: Jar) {
+    from sourceSets.main.output
+    classifier = "dev"
+}
+
+artifacts {
+    archives sourceJar, devJar
+}
+
